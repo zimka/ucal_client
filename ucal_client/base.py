@@ -37,9 +37,9 @@ class UcalBlock:
         :param voltage_1: None or Iterable[int], millivolts array pattern that
             would be repeated at channel 1.
         """
-        self.read_step_tu = read_step_tu
-        self.write_step_tu = write_step_tu
-        self.block_len_tu = block_len_tu
+        self.read_step_tu = int(read_step_tu)
+        self.write_step_tu = int(write_step_tu)
+        self.block_len_tu = int(block_len_tu)
         self.voltage_0 = voltage_0
         self.voltage_1 = voltage_1
         if self.voltage_0 is not None:
@@ -62,13 +62,26 @@ class UcalBlock:
                     assert np.min(val) >= self._VOLTAGE_MIN
             if (self.voltage_0 is not None) and (self.voltage_1 is not None):
                 msg = "voltage_0 and voltage_1 must have same len if given"
+                # TODO: TypeError: len() of unsized object
                 assert len(self.voltage_0) == len(self.voltage_1), msg
             if (self.voltage_0 is not None) or (self.voltage_0 is not None):
                 msg = "write_step_tu must be non-zero when voltage is given"
                 assert self.write_step_tu > 0
-        except AssertionError as exc:
+        except (AssertionError, TypeError) as exc:
             msg = "Invalid block configuration: {}".format(str(exc))
             raise UcalClientException(msg)
+
+    def __repr__(self):
+        cnum = 10
+        dump = lambda x: x if len(x) < cnum else x[:cnum] + '...'
+        volts_repr = "[{}; {}]".format(
+            dump(str(self.voltage_0)),
+            dump(str(self.voltage_1))
+        )
+        return "<UcalBlock:read={};write={};len={};volts={}>".format(
+            self.read_step_tu, self.write_step_tu, self.block_len_tu,
+            volts_repr
+        )
 
 
 class UcalState(Enum):
@@ -121,9 +134,15 @@ class UcalConfig(UcalConfig_):
 
     @classmethod
     def from_message(cls, message):
-        """Deserialize data from json string from server."""
+        """
+        Deserialize data from json string from server.
+
+        :param message: str, serialized to json message.
+        """
         data = json.loads(message)
         board_id = str(data["BoardId"])
         time_unit_size = float(data["TimeUnitSize"])
         storage_frame_size = int(data["StorageFrameSize"])
         return cls(board_id, time_unit_size, storage_frame_size)
+
+UcalTs = namedtuple("UcalTs", ["step", "count"])
