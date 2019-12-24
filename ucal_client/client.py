@@ -194,3 +194,13 @@ class UcalClient:
     def stop(self):
         """Stop blocks execution."""
         return self.stub.Stop(empty_pb2.Empty())
+
+    @grpc_reraise
+    def get_logs(self):
+        """Return current server logs."""
+        return str(self.stub.GetLogs(empty_pb2.Empty()).row)
+
+    @grpc_reraise
+    def drop_logs(self):
+        """Drop current server logs."""
+        self.stub.DropLogs(empty_pb2.Empty())
