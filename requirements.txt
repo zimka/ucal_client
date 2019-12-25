@@ -1,2 +1,4 @@
- grpcio>=1.23.0
- pandas>=0.25.0
+grpcio-tools>=1.23.0
+grpcio>=1.23.0
+pytest>=4.3.0
+pandas>=0.24.0
