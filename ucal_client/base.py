@@ -1,4 +1,4 @@
-"""IO parts of ucal_client."""
+"""IO elements for ucal_client."""
 from enum import Enum
 from collections import namedtuple
 import json
@@ -6,8 +6,8 @@ import json
 import numpy as np
 
 
-class UcalClientException(ValueError):
-    """Error caused by invalid client usage."""
+class UcalClientException(Exception):
+    """Error appeared during the client usage."""
 
 
 class UcalBlock:
@@ -61,8 +61,10 @@ class UcalBlock:
                     assert np.max(val) <= self._VOLTAGE_MAX
                     assert np.min(val) >= self._VOLTAGE_MIN
             if (self.voltage_0 is not None) and (self.voltage_1 is not None):
-                msg = "voltage_0 and voltage_1 must have same len if given"
+                msg = "voltage_0 and voltage_1 arrays must have same len if given"
                 # TODO: TypeError: len() of unsized object
+                assert isinstance(self.voltage_0, np.ndarray), msg
+                assert isinstance(self.voltage_1, np.ndarray), msg
                 assert len(self.voltage_0) == len(self.voltage_1), msg
             if (self.voltage_0 is not None) or (self.voltage_0 is not None):
                 msg = "write_step_tu must be non-zero when voltage is given"
@@ -145,4 +147,13 @@ class UcalConfig(UcalConfig_):
         storage_frame_size = int(data["StorageFrameSize"])
         return cls(board_id, time_unit_size, storage_frame_size)
 
-UcalTs = namedtuple("UcalTs", ["step", "count"])
+
+_UcalTs = namedtuple("UcalTs", ["step", "count"])
+
+
+class UcalTs(_UcalTs):
+    """
+    Timestamp of data from server.
+    Described as step (time betwenn adjacent data points) and
+    count(number of steps from some reference time moment).
+    """

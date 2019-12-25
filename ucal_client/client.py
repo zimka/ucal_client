@@ -1,4 +1,4 @@
-"""Ucal Client."""
+"""Ucal Client implementation."""
 from functools import wraps
 import grpc
 from google.protobuf import empty_pb2
@@ -21,12 +21,15 @@ def grpc_reraise(method):
             return method(*args, **kwargs)
         except grpc.RpcError as exc:
             exc_msg = None
-            if exc.code() == grpc.StatusCode.UNAVAILABLE:
-                exc_msg = "Can't connect to server: {}".format(exc.details())
+            if exc.code() in (
+                grpc.StatusCode.UNAVAILABLE,
+                grpc.StatusCode.UNKNOWN
+            ):
+                exc_msg = "Failed to establish connection: {}".format(exc.details())
             elif exc.code() == grpc.StatusCode.INVALID_ARGUMENT:
-                exc_msg = "Invalid args: {}".format(exc.details())
+                exc_msg = "Got invalid input: {}".format(exc.details())
             elif exc.code() == grpc.StatusCode.FAILED_PRECONDITION:
-                exc_msg = "Can't execute action: {}".format(exc.details())
+                exc_msg = "Action can't be performed: {}".format(exc.details())
             if exc_msg:
                 # No grpc traceback
                 raise UcalClientException(exc_msg) from None
