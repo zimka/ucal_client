@@ -9,7 +9,7 @@ from ucal_client._internal_grpc import server_pb2_grpc
 from ucal_client.base import UcalBlock, UcalState, \
     UcalConfig, UcalClientException, UcalTs
 
-_SERVER_DEFAULT_HOST = "localhost"
+_SERVER_DEFAULT_HOST = "192.168.241.1"
 _SERVER_DEFAULT_PORT = "10003"
 
 
@@ -41,14 +41,22 @@ def grpc_reraise(method):
 
 
 class UcalClient:
-    """Wrap over grpc client."""
-
+    """
+    The main object that can be used to manage Ucal Server.
+    Client (and Server) supports next actions:
+    - get_state to get current state of server, see UcalState;
+    - set/get_config to save global settings, see UcalConfig;
+    - set/get_plan to set execution program, see UcalBlock;
+    - get_data to download from server data as a pandas.DataFrame;
+    - run_next/stop to start and stop program execution.
+    """
     def __init__(
-            self,
-            host=_SERVER_DEFAULT_HOST,
-            port=_SERVER_DEFAULT_PORT
-        ):
+        self,
+        host=_SERVER_DEFAULT_HOST,
+        port=_SERVER_DEFAULT_PORT
+    ):
         """
+        Set host to 'localhost' when server is run locally.
         :param host: IP addrress where server is running
         :param port: port where server is running
         """
@@ -67,14 +75,21 @@ class UcalClient:
 
     @grpc_reraise
     def get_state(self):
-        """Return UcalState of the server."""
+        """
+        Return UcalState of the server.
+        Possible results: NoPlan, HavePlan, Executing, Error.
+        State defines, which actions can or can not be executed by server now.
+        """
         return UcalState(
             self.stub.GetState(empty_pb2.Empty()).name
         )
 
     @grpc_reraise
     def get_config(self):
-        """Return UcalConfig from the server."""
+        """
+        Return current server configuration as a UcalConfig.
+        Valid action at any state.
+        """
         return UcalConfig.from_message(
             self.stub.GetConfig(empty_pb2.Empty()).json
         )
@@ -82,7 +97,8 @@ class UcalClient:
     @grpc_reraise
     def set_config(self, config):
         """
-        Apply new config to the server. Valid action at NoPlan state only.
+        Apply new config(UcalConfig) to the server.
+        Valid action at NoPlan state only.
 
         :param config: UcalConfig, Str, None or Dict with
             valid UcalConfig key-values
@@ -109,8 +125,9 @@ class UcalClient:
     @grpc_reraise
     def get_plan(self):
         """
-        Return List[UcalBlock] that server is executing or
+        Return plan (List[UcalBlock]) that server is executing or
         going to execute.
+        Valid action at NoPlan, HavePlan and Executing states.
         """
         grpc_blocks = list(
             b for b in self.stub.GetPlan(empty_pb2.Empty())
@@ -129,6 +146,7 @@ class UcalClient:
     def set_plan(self, plan):
         """
         Set List[UcalBlock] as a new plan for server.
+        Set empty list([]) to move to NoPlan state.
         Valid action at NoPlan and HavePlan states.
         """
         if not (
@@ -151,6 +169,9 @@ class UcalClient:
     def get_data(self, start_ts=None, merge=True):
         """
         Return List[pd.DataFrame] from Server.
+        If merge=True, DataFrames are concatenated.
+        DataFrames contain info about voltage and time moments from
+        the execution start.
 
         :param start_ts: UcalTs, starting point for returned data.
         :param merge: bool, whether to concat frames into single df.
@@ -189,13 +210,21 @@ class UcalClient:
     def run_next(self):
         """
         Start next block execution.
-        Stops once no blocks left to be executed.
+        Valid action at HavePlan, Executing states.
+        If server is at HavePlan state, execution is started.
+        If server is at Executing state, current UcalBlock execution is
+        stopped and next UcalBlock in plan is started.
+        If there is no more UcalBlock in plan, execution is finished and
+        HavePlan state is set.
         """
         return self.stub.RunNext(empty_pb2.Empty())
 
     @grpc_reraise
     def stop(self):
-        """Stop blocks execution."""
+        """
+        Stop blocks execution. All measured data is available.
+        Valid action at Executing state.
+        """
         return self.stub.Stop(empty_pb2.Empty())
 
     @grpc_reraise

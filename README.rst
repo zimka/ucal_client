@@ -1,6 +1,6 @@
 Description
 -----------
-Python client for server from UcalManager server (https://bitbucket.org/zimka_b/ucal_manager/)
+Python client for server from UcalManager server (https://bitbucket.org/zimka_b/ucal_manager/).
 
 Install
 -------
@@ -15,8 +15,13 @@ Tests
 To check tests run in terminal (or anaconda prompt):
 ::
 
+  pip install pytest
   pytest --pyargs ucal_client
 
 Usage
 -----
-See `example.ipynb` for cases.
+See `example.ipynb` for examples and description.
+
+Docs
+----
+TODO

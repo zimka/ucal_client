@@ -7,11 +7,30 @@ import numpy as np
 
 
 class UcalClientException(Exception):
-    """Error appeared during the client usage."""
+    """Error raised during the client usage."""
 
 
 class UcalBlock:
-    """Description of device read/write configuration."""
+    """
+    Device read/write configuration description for a specific time period.
+
+    Plan or program in UcalClient(and Server) is stored as a
+    sequence of independent blocks(UcalBlock), where each describes what
+    voltage should be applied to the sample and how data should be measured.
+    UcalBlock contains next values:
+    - voltage_0: list of int values in millivolts, that should be applied
+    sequentially to the first heater. Pattern repeats once it reaches end.
+    If set to None, no voltage is applied.
+    - voltage_1: list of int values in millivolts, that should be applied
+    sequentially to the second heater. Pattern repeats once it reached end.
+    If set to None, no voltage is applied.
+    - read_step_tu: Read step in TimeUnit (ms by default, see UcalConfig);
+    Specifies how frequently should signal be measured and saved. Must be nonzero.
+    - write_step_tu: Write step in TimeUnit (ms by defaul, see UcalConfig);
+    Specifies how frequently voltage from voltage_0 and voltage_1
+    - block_len_tu: Duration of the UcalBlock. If set to zero, user command
+    is awaited to end the block.
+    """
 
     __slots__ = [
         "read_step_tu",
@@ -91,8 +110,8 @@ class UcalState(Enum):
     State of the Server.
 
     :param EXECUTING: Server is executing Block.
-    :param HAVE_PLAN: Server is ready to execute Blocks.
-    :param NO_PLAN: Server is waiting for Blocks from client.
+    :param HAVE_PLAN: Server is ready to execute Blocks
+    :param NO_PLAN: Server is waiting for Blocks, user can configure device.
     :param ERROR: Server is in emergency state which needs manual fix.
     """
 
@@ -116,9 +135,12 @@ class UcalConfig(UcalConfig_):
     Configuration of the Server.
 
     :param board_id: str, name that used to init daqboard.
-    :param time_unit_size: float, multiplier for millisecond, e.g. 10 or 0.01
-    :param storage_frame_size: int, enforce size of frame in server;
-        zero means size may vary.
+    :param time_unit_size: float, multiplier in relevance
+        to millisecond, e.g. 10 or 0.01. All time-related values
+        in block are multiplied respectively
+    :param storage_frame_size: int, size of the frame in server.
+        Zero means size may vary. Non-zero frame size may cause
+        time measurement errors caused by resampling.
     """
 
     def to_message(self):
@@ -154,6 +176,6 @@ _UcalTs = namedtuple("UcalTs", ["step", "count"])
 class UcalTs(_UcalTs):
     """
     Timestamp of data from server.
-    Described as step (time betwenn adjacent data points) and
-    count(number of steps from some reference time moment).
+    Described as the step (time betwenn adjacent data points) and
+    the count (number of steps from start time moment).
     """
