@@ -70,6 +70,7 @@ class UcalBlock:
     def _validate(self):
         """Validate UcalBlock attributes."""
         try:
+            # all time_step params must be given and must be non-negative int
             for attr in ["read_step_tu", "write_step_tu", "block_len_tu"]:
                 val = getattr(self, attr)
                 assert isinstance(val, int), "'{}' must be int".format(attr)
@@ -77,8 +78,14 @@ class UcalBlock:
             for attr in ["voltage_0", "voltage_1"]:
                 val = getattr(self, attr)
                 if val is not None:
-                    assert np.max(val) <= self._VOLTAGE_MAX
-                    assert np.min(val) >= self._VOLTAGE_MIN
+                    msg = "Use None to turn off '{}' instead of {}".format(attr, val)
+                    assert len(val), msg
+                    val = np.array(val)
+                    setattr(self, attr, val)
+                    assert np.max(val) <= self._VOLTAGE_MAX, \
+                        "Voltages must be less than {}".format(self._VOLTAGE_MAX)
+                    assert np.min(val) >= self._VOLTAGE_MIN, \
+                        "Voltages must be higher than {}".format(self._VOLTAGE_MIN)
             if (self.voltage_0 is not None) and (self.voltage_1 is not None):
                 msg = "voltage_0 and voltage_1 arrays must have same len if given"
                 # TODO: TypeError: len() of unsized object
@@ -90,7 +97,7 @@ class UcalBlock:
                 assert self.write_step_tu > 0
         except (AssertionError, TypeError) as exc:
             msg = "Invalid block configuration: {}".format(str(exc))
-            raise UcalClientException(msg)
+            raise UcalClientException(msg) from None
 
     def __repr__(self):
         cnum = 10

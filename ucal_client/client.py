@@ -1,13 +1,20 @@
 """Ucal Client implementation."""
 from functools import wraps
+import warnings
+
 import grpc
-from google.protobuf import empty_pb2
+
+# Make deprecation warnings silent
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore")
+    from google.protobuf import empty_pb2
+    from ucal_client._internal_grpc import server_pb2
+    from ucal_client._internal_grpc import server_pb2_grpc
+    from ucal_client.base import UcalBlock, UcalState, \
+        UcalConfig, UcalClientException, UcalTs
+
 import pandas as pd
 
-from ucal_client._internal_grpc import server_pb2
-from ucal_client._internal_grpc import server_pb2_grpc
-from ucal_client.base import UcalBlock, UcalState, \
-    UcalConfig, UcalClientException, UcalTs
 
 _SERVER_DEFAULT_HOST = "192.168.241.1"
 _SERVER_DEFAULT_PORT = "10003"

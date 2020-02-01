@@ -123,3 +123,14 @@ def test_invalid_block():
             voltage_0=[9000, 0],
             voltage_1=None
         )
+
+    with pytest.raises(UcalClientException):
+        # Empty list for voltage instead of None
+        block = UcalBlock(
+            read_step_tu=1,
+            write_step_tu=0,
+            block_len_tu=0,
+            voltage_0=[9000, 0],
+            voltage_1=[]
+        )
+
