@@ -18,6 +18,7 @@ import pandas as pd
 
 _SERVER_DEFAULT_HOST = "192.168.241.1"
 _SERVER_DEFAULT_PORT = "10003"
+_SERVER_DEFAULT_TIMEOUT_SECONDS = 5
 
 
 def grpc_reraise(method):
@@ -28,21 +29,24 @@ def grpc_reraise(method):
             return method(*args, **kwargs)
         except grpc.RpcError as exc:
             exc_msg = None
-            if exc.code() in (
-                grpc.StatusCode.UNAVAILABLE,
-                grpc.StatusCode.UNKNOWN
+            code = exc.code()  # pylint: disable=no-member
+            details = exc.details()  # pylint: disable=no-member
+            if code in (
+                    grpc.StatusCode.UNAVAILABLE,
+                    grpc.StatusCode.UNKNOWN,
+                    grpc.StatusCode.DEADLINE_EXCEEDED
             ):
-                exc_msg = "Failed to establish connection: {}".format(exc.details())
-            elif exc.code() == grpc.StatusCode.INVALID_ARGUMENT:
-                exc_msg = "Got invalid input: {}".format(exc.details())
-            elif exc.code() == grpc.StatusCode.FAILED_PRECONDITION:
-                exc_msg = "Action can't be performed: {}".format(exc.details())
+                exc_msg = "Failed to establish connection: {}".format(details)
+            elif code == grpc.StatusCode.INVALID_ARGUMENT:
+                exc_msg = "Got invalid input: {}".format(details)
+            elif code == grpc.StatusCode.FAILED_PRECONDITION:
+                exc_msg = "Action can't be performed: {}".format(details)
             if exc_msg:
                 # No grpc traceback
                 raise UcalClientException(exc_msg) from None
             else:
                 # Show grpc traceback
-                exc_msg = "Server bug, please report: {}".format(exc.details())
+                exc_msg = "Server bug, please report: {}".format(details)
                 raise UcalClientException(exc_msg)
     return reraised_method
 
@@ -59,27 +63,40 @@ class UcalClient:
     - run_next/stop to start and stop program execution.
     """
     def __init__(
-        self,
-        host=_SERVER_DEFAULT_HOST,
-        port=_SERVER_DEFAULT_PORT
+            self,
+            host=_SERVER_DEFAULT_HOST,
+            port=_SERVER_DEFAULT_PORT,
+            timeout_s=_SERVER_DEFAULT_TIMEOUT_SECONDS
     ):
         """
         Set host to 'localhost' when server is run locally.
         :param host: IP addrress where server is running
         :param port: port where server is running
+        :param timeout_s: how much time in seconds should
+            client wait for response from server
         """
         self.host = host
         self.port = port
+        self.timeout_s = timeout_s
 
-    @property
-    def stub(self):
-        """GRPC server stub."""
-        if not hasattr(self, "_stub"):
-            channel = grpc.insecure_channel(
-                "{}:{}".format(self.host, self.port)
+        self._channel = grpc.insecure_channel(
+            "{}:{}".format(self.host, self.port)
+        )
+        self.stub = server_pb2_grpc.ServerStub(self._channel)
+
+    def is_server_available(self, timeout_s=2):
+        """
+        Checks if server is currently available.
+        :param timeout_s: how much time in seconds should
+            client wait for response from server
+        """
+        try:
+            grpc.channel_ready_future(self._channel).result(
+                timeout=timeout_s
             )
-            self._stub = server_pb2_grpc.ServerStub(channel)
-        return self._stub
+            return True
+        except grpc.FutureTimeoutError:
+            return False
 
     @grpc_reraise
     def get_state(self):
@@ -89,7 +106,7 @@ class UcalClient:
         State defines, which actions can or can not be executed by server now.
         """
         return UcalState(
-            self.stub.GetState(empty_pb2.Empty()).name
+            self.stub.GetState(empty_pb2.Empty(), timeout=self.timeout_s).name
         )
 
     @grpc_reraise
@@ -99,7 +116,7 @@ class UcalClient:
         Valid action at any state.
         """
         return UcalConfig.from_message(
-            self.stub.GetConfig(empty_pb2.Empty()).json
+            self.stub.GetConfig(empty_pb2.Empty(), timeout=self.timeout_s).json
         )
 
     @grpc_reraise
@@ -115,14 +132,14 @@ class UcalClient:
             config = UcalConfig(**config)
         if isinstance(config, UcalConfig):
             self.stub.SetConfig(
-                server_pb2.JsonMsg(json=config.to_message())
+                server_pb2.JsonMsg(json=config.to_message()), timeout=self.timeout_s
             )
             return
         if config is None:
             config = "{}"
         if isinstance(config, str):
             self.stub.SetConfig(
-                server_pb2.JsonMsg(json=config)
+                server_pb2.JsonMsg(json=config), timeout=self.timeout_s
             )
             return
         msg = "set_config accepts dict, UcalConfig or str, got {}".format(
@@ -160,8 +177,8 @@ class UcalClient:
             Set empty list([]) to move to *NoPlan* state.
         """
         if not (
-            isinstance(plan, list) and
-            all(isinstance(b, UcalBlock) for b in plan)
+                isinstance(plan, list) and
+                all(isinstance(b, UcalBlock) for b in plan)
         ):
             msg = "Plan must have type List[UcalBlock]"
             raise UcalClientException(msg)
@@ -172,7 +189,8 @@ class UcalClient:
                 block_len_tu=b.block_len_tu,
                 voltage_0=b.voltage_0,
                 voltage_1=b.voltage_1
-            ) for b in plan)
+            ) for b in plan),
+            timeout=self.timeout_s
         )
 
     @grpc_reraise
@@ -194,8 +212,8 @@ class UcalClient:
         def parse_frame_msg(msg):
             """Turn server_pb2.FrameMsg into pd.DataFrame."""
             df = pd.DataFrame()
-            for c in msg.data.keys():
-                df[c] = msg.data[c].data
+            for col in msg.data.keys():
+                df[col] = msg.data[col].data
             df['step'] = msg.ts.step
             # TimeStamp in frame is related to the last point
             df['count'] = list(
@@ -203,8 +221,9 @@ class UcalClient:
             )
             return df
         raw_data = (self.stub.GetData(
-            server_pb2.TimeStampMsg(step=start_ts.step, count=start_ts.count))
-        )
+            server_pb2.TimeStampMsg(step=start_ts.step, count=start_ts.count),
+            timeout=self.timeout_s
+        ))
 
         separate_dfs = list(parse_frame_msg(r) for r in raw_data)
         if merge:
@@ -227,7 +246,7 @@ class UcalClient:
         If there is no more UcalBlock in plan, execution is finished and
         *HavePlan* state is set.
         """
-        return self.stub.RunNext(empty_pb2.Empty())
+        return self.stub.RunNext(empty_pb2.Empty(), timeout=self.timeout_s)
 
     @grpc_reraise
     def stop(self):
@@ -235,14 +254,14 @@ class UcalClient:
         Stop blocks execution. All measured data is available.
         Valid action at *Executing* state.
         """
-        return self.stub.Stop(empty_pb2.Empty())
+        return self.stub.Stop(empty_pb2.Empty(), timeout=self.timeout_s)
 
     @grpc_reraise
     def get_logs(self):
         """Return current server logs."""
-        return str(self.stub.GetLogs(empty_pb2.Empty()).row)
+        return str(self.stub.GetLogs(empty_pb2.Empty(), timeout=self.timeout_s).row)
 
     @grpc_reraise
     def drop_logs(self):
         """Drop current server logs."""
-        self.stub.DropLogs(empty_pb2.Empty())
+        self.stub.DropLogs(empty_pb2.Empty(), timeout=self.timeout_s)

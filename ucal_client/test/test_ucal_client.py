@@ -1,9 +1,11 @@
 """All ucal client tests."""
+# pylint: disable=unused-variable
+
 import json
+import pytest
+
 from ucal_client.base import UcalBlock, UcalState, \
     UcalConfig, UcalClientException
-
-import pytest
 
 
 def test_state():

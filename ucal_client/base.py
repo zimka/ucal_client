@@ -79,7 +79,7 @@ class UcalBlock:
                 val = getattr(self, attr)
                 if val is not None:
                     msg = "Use None to turn off '{}' instead of {}".format(attr, val)
-                    assert len(val), msg
+                    assert len(val) != 0, msg
                     val = np.array(val)
                     setattr(self, attr, val)
                     assert np.max(val) <= self._VOLTAGE_MAX, \
@@ -88,7 +88,6 @@ class UcalBlock:
                         "Voltages must be higher than {}".format(self._VOLTAGE_MIN)
             if (self.voltage_0 is not None) and (self.voltage_1 is not None):
                 msg = "voltage_0 and voltage_1 arrays must have same len if given"
-                # TODO: TypeError: len() of unsized object
                 assert isinstance(self.voltage_0, np.ndarray), msg
                 assert isinstance(self.voltage_1, np.ndarray), msg
                 assert len(self.voltage_0) == len(self.voltage_1), msg
