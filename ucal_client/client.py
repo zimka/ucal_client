@@ -51,6 +51,7 @@ class UcalClient:
     """
     The main object that can be used to manage Ucal Server.
     Client (and Server) supports next actions:
+
     - get_state to get current state of server, see UcalState;
     - set/get_config to save global settings, see UcalConfig;
     - set/get_plan to set execution program, see UcalBlock;
@@ -84,7 +85,7 @@ class UcalClient:
     def get_state(self):
         """
         Return UcalState of the server.
-        Possible results: NoPlan, HavePlan, Executing, Error.
+        Possible results: *NoPlan*, *HavePlan*, *Executing*, *Error*.
         State defines, which actions can or can not be executed by server now.
         """
         return UcalState(
@@ -105,7 +106,7 @@ class UcalClient:
     def set_config(self, config):
         """
         Apply new config(UcalConfig) to the server.
-        Valid action at NoPlan state only.
+        Valid action at *NoPlan* state only.
 
         :param config: UcalConfig, Str, None or Dict with
             valid UcalConfig key-values
@@ -134,7 +135,7 @@ class UcalClient:
         """
         Return plan (List[UcalBlock]) that server is executing or
         going to execute.
-        Valid action at NoPlan, HavePlan and Executing states.
+        Valid action at *NoPlan*, *HavePlan* and *Executing* states.
         """
         grpc_blocks = list(
             b for b in self.stub.GetPlan(empty_pb2.Empty())
@@ -152,9 +153,11 @@ class UcalClient:
     @grpc_reraise
     def set_plan(self, plan):
         """
-        Set List[UcalBlock] as a new plan for server.
-        Set empty list([]) to move to NoPlan state.
-        Valid action at NoPlan and HavePlan states.
+        Set a new plan for server.
+        Valid action at *NoPlan* and *HavePlan* states.
+
+        :param plan: List[UcalBlock], starting point for returned data.
+            Set empty list([]) to move to *NoPlan* state.
         """
         if not (
             isinstance(plan, list) and
@@ -217,12 +220,12 @@ class UcalClient:
     def run_next(self):
         """
         Start next block execution.
-        Valid action at HavePlan, Executing states.
-        If server is at HavePlan state, execution is started.
-        If server is at Executing state, current UcalBlock execution is
+        Valid action at *HavePlan*, *Executing* states.
+        If server is at *HavePlan* state, execution is started.
+        If server is at *Executing* state, current UcalBlock execution is
         stopped and next UcalBlock in plan is started.
         If there is no more UcalBlock in plan, execution is finished and
-        HavePlan state is set.
+        *HavePlan* state is set.
         """
         return self.stub.RunNext(empty_pb2.Empty())
 
@@ -230,7 +233,7 @@ class UcalClient:
     def stop(self):
         """
         Stop blocks execution. All measured data is available.
-        Valid action at Executing state.
+        Valid action at *Executing* state.
         """
         return self.stub.Stop(empty_pb2.Empty())
 
