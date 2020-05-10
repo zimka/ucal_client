@@ -157,13 +157,14 @@ class UcalClient:
         grpc_blocks = list(
             b for b in self.stub.GetPlan(empty_pb2.Empty())
         )
+        replace = lambda v: v if len(v) else None
         return list(
             UcalBlock(
                 read_step_tu=b.read_step_tu,
                 write_step_tu=b.write_step_tu,
                 block_len_tu=b.block_len_tu,
-                voltage_0=b.voltage_0,
-                voltage_1=b.voltage_1
+                voltage_0=replace(b.voltage_0),
+                voltage_1=replace(b.voltage_1)
             ) for b in grpc_blocks
         )
 
