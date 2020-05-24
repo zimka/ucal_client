@@ -228,7 +228,8 @@ class UcalClient:
 
         separate_dfs = list(parse_frame_msg(r) for r in raw_data)
         if merge:
-            # TODO: check not-empty
+            if not len(separate_dfs):
+                return pd.DataFrame()
             df = pd.concat(separate_dfs).reset_index(drop=True)
             df['Time'] = df['step'].cumsum()
             df = df.drop(columns=['count', 'step'])
