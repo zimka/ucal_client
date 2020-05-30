@@ -13,6 +13,7 @@ with warnings.catch_warnings():
     from ucal_client.base import UcalBlock, UcalState, \
         UcalConfig, UcalClientException, UcalTs
 
+import numpy as np
 import pandas as pd
 
 
@@ -205,7 +206,63 @@ class UcalClient:
         :param start_ts: UcalTs, starting point for returned data.
         :param merge: bool, whether to concat frames into single df.
         """
+        EXPECTED_DATA_KEYS = ['Uaux', 'Uhtr', 'Umod', 'Uref', 'Utpl']
+        ADDITIONAL_KEYS = ['step', 'count']
+        TIME_KEY = ['Time']
 
+        if start_ts is None:
+            start_ts = UcalTs(0, 0)
+        assert isinstance(start_ts, UcalTs)
+
+        def parse_frame_msg(msg):
+            """Turn server_pb2.FrameMsg into pd.DataFrame."""
+            data = dict(msg.data)
+            if len(data.keys()) and (sorted(data.keys()) != EXPECTED_DATA_KEYS):
+                msg = "Server interface has changed! "
+                msg += "Expected data keys '{}' but got '{}'".format(
+                    EXPECTED_DATA_KEYS, list(data.keys())
+                )
+                raise UcalClientException(msg)
+            step = np.zeros(msg.size) + msg.ts.step
+            count = np.arange(msg.ts.count, msg.ts.count + msg.size)
+            return np.stack(
+                [step, count] +
+                [np.array(data[k].data) for k in EXPECTED_DATA_KEYS],
+                axis=-1
+            )
+        raw_data = list(self.stub.GetData(
+            server_pb2.TimeStampMsg(step=start_ts.step, count=start_ts.count),
+            timeout=self.timeout_s
+        ))
+        message_arrays = list(parse_frame_msg(r) for r in raw_data)
+        if merge:
+            if not len(message_arrays):
+                return pd.DataFrame(columns=TIME_KEY + EXPECTED_DATA_KEYS)
+            total = np.vstack(message_arrays)
+            df = pd.DataFrame(total, columns=ADDITIONAL_KEYS + EXPECTED_DATA_KEYS)
+            df['Time'] = df['step'].cumsum()
+            df = df.drop(columns=['count', 'step'])
+            return df.set_index('Time')
+        else:
+            if not len(message_arrays):
+                return []
+            return [
+                pd.DataFrame(x, columns=ADDITIONAL_KEYS + EXPECTED_DATA_KEYS)
+                for x in message_arrays
+            ]
+
+    @grpc_reraise
+    def _deprecated_get_data(self, start_ts=None, merge=True):
+        """
+        Return List[pd.DataFrame] from Server.
+        If merge=True, DataFrames are concatenated.
+        DataFrames contain info about voltage and time moments from
+        the execution start.
+
+        :param start_ts: UcalTs, starting point for returned data.
+        :param merge: bool, whether to concat frames into single df.
+        """
+        # TODO: delete this method as deprecated
         if start_ts is None:
             start_ts = UcalTs(0, 0)
         assert isinstance(start_ts, UcalTs)
