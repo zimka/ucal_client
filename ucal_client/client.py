@@ -63,25 +63,55 @@ class UcalClient:
     - get_data to download from server data as a pandas.DataFrame;
     - run_next/stop to start and stop program execution.
     """
+    TIME_TYPES = ('expected', 'measured')
+    _EXPECTED_DATA_KEYS = ('S0', 'S1', 'S2', 'S3', 'S4')
+    _ADDITIONAL_KEYS = ('count', 'step')
+    _TIME_KEY = 'Time'
+
+    MERGED_DATA_KEYS = tuple([_TIME_KEY]) + _EXPECTED_DATA_KEYS
+    RAW_DATA_KEYS = _ADDITIONAL_KEYS + _EXPECTED_DATA_KEYS
+
     def __init__(
             self,
             host=_SERVER_DEFAULT_HOST,
             port=_SERVER_DEFAULT_PORT,
-            timeout_s=_SERVER_DEFAULT_TIMEOUT_SECONDS
+            timeout_s=_SERVER_DEFAULT_TIMEOUT_SECONDS,
+            use_time='expected',
+            max_message_length=128*1024*1024
     ):
         """
         Set host to 'localhost' when server is run locally.
         :param host: IP addrress where server is running
         :param port: port where server is running
         :param timeout_s: how much time in seconds should
-            client wait for response from server
+            client wait for response from server,
+        :param use_time: how to associate time with points in merged data,
+            either 'expected' or 'measured'.
+            'expected' supposes that server device (electronic) has no time
+            measurement error and uses cumulative step as measurement time
+            estimation. However it does not take into account time between
+            block runs, so it may accumulate systematic time measurement error.
+            'measured' uses server (programmatic) global time. It has
+            significant random error, which leads to non-monotonic time
+            estimation, but it does not have systematic error.
         """
         self.host = host
         self.port = port
         self.timeout_s = timeout_s
+        self.use_time = use_time
+        if self.use_time not in self.TIME_TYPES:
+            raise UcalClientException(
+                "Wrong use_time value '{}', must be one of {}".format(
+                    self.use_time, self.TIME_TYPES
+                )
+            )
+        options = [
+            ('grpc.max_send_message_length', max_message_length),
+            ('grpc.max_receive_message_length', max_message_length),
 
+        ]
         self._channel = grpc.insecure_channel(
-            "{}:{}".format(self.host, self.port)
+            "{}:{}".format(self.host, self.port), options
         )
         self.stub = server_pb2_grpc.ServerStub(self._channel)
 
@@ -205,11 +235,8 @@ class UcalClient:
 
         :param start_ts: UcalTs, starting point for returned data.
         :param merge: bool, whether to concat frames into single df.
+        :param global_time: bool, whether to use global time in merged df
         """
-        EXPECTED_DATA_KEYS = ['Uaux', 'Uhtr', 'Umod', 'Uref', 'Utpl']
-        ADDITIONAL_KEYS = ['step', 'count']
-        TIME_KEY = ['Time']
-
         if start_ts is None:
             start_ts = UcalTs(0, 0)
         assert isinstance(start_ts, UcalTs)
@@ -217,17 +244,17 @@ class UcalClient:
         def parse_frame_msg(msg):
             """Turn server_pb2.FrameMsg into pd.DataFrame."""
             data = dict(msg.data)
-            if len(data.keys()) and (sorted(data.keys()) != EXPECTED_DATA_KEYS):
+            if len(data.keys()) and (sorted(data.keys()) != list(self._EXPECTED_DATA_KEYS)):
                 msg = "Server interface has changed! "
                 msg += "Expected data keys '{}' but got '{}'".format(
-                    EXPECTED_DATA_KEYS, list(data.keys())
+                    self._EXPECTED_DATA_KEYS, list(data.keys())
                 )
                 raise UcalClientException(msg)
             step = np.zeros(msg.size) + msg.ts.step
-            count = np.arange(msg.ts.count, msg.ts.count + msg.size)
+            count = np.arange(msg.ts.count - msg.size + 1, msg.ts.count + 1)
             return np.stack(
-                [step, count] +
-                [np.array(data[k].data) for k in EXPECTED_DATA_KEYS],
+                [count, step] +
+                [np.array(data[k].data) for k in self._EXPECTED_DATA_KEYS],
                 axis=-1
             )
         raw_data = list(self.stub.GetData(
@@ -235,64 +262,42 @@ class UcalClient:
             timeout=self.timeout_s
         ))
         message_arrays = list(parse_frame_msg(r) for r in raw_data)
+        # drop redundant points from first frame if there are any
+        if len(message_arrays):
+            first_frame = message_arrays[0]
+            after_ts_idx = first_frame[:, 0] > start_ts.count
+            first_frame_after_ts = first_frame[after_ts_idx, :]
+            message_arrays[0] = first_frame_after_ts
+
         if merge:
-            if not len(message_arrays):
-                return pd.DataFrame(columns=TIME_KEY + EXPECTED_DATA_KEYS)
-            total = np.vstack(message_arrays)
-            df = pd.DataFrame(total, columns=ADDITIONAL_KEYS + EXPECTED_DATA_KEYS)
-            df['Time'] = df['step'].cumsum()
-            df = df.drop(columns=['count', 'step'])
-            return df.set_index('Time')
+            return self._merge_data(message_arrays, start_ts)
         else:
-            if not len(message_arrays):
-                return []
-            return [
-                pd.DataFrame(x, columns=ADDITIONAL_KEYS + EXPECTED_DATA_KEYS)
-                for x in message_arrays
-            ]
+            return message_arrays
 
-    @grpc_reraise
-    def _deprecated_get_data(self, start_ts=None, merge=True):
+    def _merge_data(self, message_arrays, start_ts):
         """
-        Return List[pd.DataFrame] from Server.
-        If merge=True, DataFrames are concatenated.
-        DataFrames contain info about voltage and time moments from
-        the execution start.
-
-        :param start_ts: UcalTs, starting point for returned data.
-        :param merge: bool, whether to concat frames into single df.
+        Composes pd.DataFrame from raw frame arrays.
         """
-        # TODO: delete this method as deprecated
+        assert isinstance(message_arrays, list)
+        assert all(isinstance(x, np.ndarray) for x in message_arrays)
         if start_ts is None:
             start_ts = UcalTs(0, 0)
-        assert isinstance(start_ts, UcalTs)
 
-        def parse_frame_msg(msg):
-            """Turn server_pb2.FrameMsg into pd.DataFrame."""
-            df = pd.DataFrame()
-            for col in msg.data.keys():
-                df[col] = msg.data[col].data
-            df['step'] = msg.ts.step
-            # TimeStamp in frame is related to the last point
-            df['count'] = list(
-                x for x in range(msg.ts.count, msg.ts.count + len(df))
-            )
-            return df
-        raw_data = (self.stub.GetData(
-            server_pb2.TimeStampMsg(step=start_ts.step, count=start_ts.count),
-            timeout=self.timeout_s
-        ))
-
-        separate_dfs = list(parse_frame_msg(r) for r in raw_data)
-        if merge:
-            if not len(separate_dfs):
-                return pd.DataFrame()
-            df = pd.concat(separate_dfs).reset_index(drop=True)
-            df['Time'] = df['step'].cumsum()
-            df = df.drop(columns=['count', 'step'])
-            return df.set_index('Time')
+        if not len(message_arrays):
+            return pd.DataFrame(columns=self.MERGED_DATA_KEYS).set_index(self._TIME_KEY)
+        total = np.vstack(message_arrays)
+        tk = self._TIME_KEY
+        df = pd.DataFrame(total, columns=self.RAW_DATA_KEYS)
+        if self.use_time == 'measured':
+            df[tk] = df['step'] * df['count']
+        elif self.use_time == 'expected':
+            df[tk] = df['step'].cumsum() + start_ts.count*start_ts.step
         else:
-            return separate_dfs
+            raise UcalClientException(
+                "Unexpected .use_time value '{}'".format(self.use_time)
+            )
+        df = df.drop(columns=['count', 'step'])
+        return df.set_index(tk)
 
     @grpc_reraise
     def run_next(self):
