@@ -42,7 +42,7 @@ def load_requirements(*requirements_paths):
 
 setup(
     name='ucal_client',
-    version='0.5.0',
+    version='0.6.0',
     python_requires='>3.5.0',
     packages=find_packages(),
     description='Client for Ucal Manager Server',
