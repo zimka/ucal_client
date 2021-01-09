@@ -17,19 +17,19 @@ class UcalBlock:
     Plan or program in UcalClient(and Server) is stored as a
     sequence of independent blocks(UcalBlock), where each describes what
     voltage should be applied to the sample and how data should be measured.
-    UcalBlock contains next values:
-    - voltage_0: list of int values in millivolts, that should be applied
-    sequentially to the first heater. Pattern repeats once it reaches end.
-    If set to None, no voltage is applied.
-    - voltage_1: list of int values in millivolts, that should be applied
-    sequentially to the second heater. Pattern repeats once it reached end.
-    If set to None, no voltage is applied.
-    - read_step_tu: Read step in TimeUnit (ms by default, see UcalConfig);
-    Specifies how frequently should signal be measured and saved. Must be nonzero.
-    - write_step_tu: Write step in TimeUnit (ms by defaul, see UcalConfig);
-    Specifies how frequently voltage from voltage_0 and voltage_1
-    - block_len_tu: Duration of the UcalBlock. If set to zero, user command
-    is awaited to end the block.
+
+    :param voltage_0: list of int values in millivolts, that should be applied
+      sequentially to the first heater. Pattern repeats once it reaches end.
+      If set to None, no voltage is applied.
+    :param voltage_1: list of int values in millivolts, that should be applied
+      sequentially to the second heater. Pattern repeats once it reached end.
+      If set to None, no voltage is applied.
+    :param read_step_tu: read step in TimeUnit (ms by default, see UcalConfig);
+      Specifies how frequently should signal be measured and saved. Must be nonzero.
+    :param write_step_tu: write step in TimeUnit (ms by defaul, see UcalConfig);
+      Specifies how frequently voltage from voltage_0 and voltage_1
+    :param block_len_tu: duration of the UcalBlock. If set to zero, user command
+      is awaited to end the block (runs infinitely).
     """
 
     __slots__ = [
@@ -70,6 +70,7 @@ class UcalBlock:
     def _validate(self):
         """Validate UcalBlock attributes."""
         try:
+            # all time_step params must be given and must be non-negative int
             for attr in ["read_step_tu", "write_step_tu", "block_len_tu"]:
                 val = getattr(self, attr)
                 assert isinstance(val, int), "'{}' must be int".format(attr)
@@ -77,11 +78,16 @@ class UcalBlock:
             for attr in ["voltage_0", "voltage_1"]:
                 val = getattr(self, attr)
                 if val is not None:
-                    assert np.max(val) <= self._VOLTAGE_MAX
-                    assert np.min(val) >= self._VOLTAGE_MIN
+                    msg = "Use None to turn off '{}' instead of {}".format(attr, val)
+                    assert len(val) != 0, msg
+                    val = np.array(val)
+                    setattr(self, attr, val)
+                    assert np.max(val) <= self._VOLTAGE_MAX, \
+                        "Voltages must be less than {}".format(self._VOLTAGE_MAX)
+                    assert np.min(val) >= self._VOLTAGE_MIN, \
+                        "Voltages must be higher than {}".format(self._VOLTAGE_MIN)
             if (self.voltage_0 is not None) and (self.voltage_1 is not None):
                 msg = "voltage_0 and voltage_1 arrays must have same len if given"
-                # TODO: TypeError: len() of unsized object
                 assert isinstance(self.voltage_0, np.ndarray), msg
                 assert isinstance(self.voltage_1, np.ndarray), msg
                 assert len(self.voltage_0) == len(self.voltage_1), msg
@@ -90,7 +96,7 @@ class UcalBlock:
                 assert self.write_step_tu > 0
         except (AssertionError, TypeError) as exc:
             msg = "Invalid block configuration: {}".format(str(exc))
-            raise UcalClientException(msg)
+            raise UcalClientException(msg) from None
 
     def __repr__(self):
         cnum = 10
@@ -121,7 +127,7 @@ class UcalState(Enum):
     ERROR = 'Error'
 
 
-UcalConfig_ = namedtuple(
+_UcalConfig = namedtuple(
     "UcalConfig_", [
         "board_id",
         "time_unit_size",
@@ -130,7 +136,7 @@ UcalConfig_ = namedtuple(
 )
 
 
-class UcalConfig(UcalConfig_):
+class UcalConfig(_UcalConfig):
     """
     Configuration of the Server.
 
@@ -176,6 +182,6 @@ _UcalTs = namedtuple("UcalTs", ["step", "count"])
 class UcalTs(_UcalTs):
     """
     Timestamp of data from server.
-    Described as the step (time betwenn adjacent data points) and
-    the count (number of steps from start time moment).
+    Described as the *step* (time between adjacent data points) and
+    the *count* (number of steps from start time moment).
     """

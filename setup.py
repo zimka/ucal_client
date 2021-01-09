@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 
 with open(os.path.join(os.path.dirname(__file__), 'README.rst')) as readme:
     README = readme.read()
@@ -42,21 +42,21 @@ def load_requirements(*requirements_paths):
 
 setup(
     name='ucal_client',
-    version='0.3.1',
+    version='0.6.0',
     python_requires='>3.5.0',
-    packages=['ucal_client'],
+    packages=find_packages(),
     description='Client for Ucal Manager Server',
     long_description=README,
-    url='https://bitbucket.com/zimka/ucal_manager',
+    url='https://bitbucket.com/zimka/ucal_client',
     author='Boris Zimka, Igor Stepanenko',
     author_email='zimka@phystech.edu, igor.stepanenko@phystech.edu',
     install_requires=load_requirements('requirements.txt',),
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Intended Audience :: End Users/Desktop',
-        'Intended Audience :: Science/Research'
+        'Intended Audience :: Science/Research',
         'Operating System :: OS Independent',
-        'Programming Language :: Python :: 3 :: Only'
+        'Programming Language :: Python :: 3 :: Only',
         'Topic :: Scientific/Engineering'
     ],
 )
